@@ -51,7 +51,7 @@ def paired_bootstrap(y, p_a, p_b, n_boot=500, seed=0):
             "logloss_diff_mean": float(np.mean(d_ll)), "logloss_diff_ci95": ci(d_ll)}
 
 
-def plot_calibration(y, preds: dict, path: str, n_bins: int = 10):
+def plot_calibration(y, preds: dict, path: str, n_bins: int = 10, data_label: str = "synthetic data"):
     fig, ax = plt.subplots(figsize=(6.2, 5.2), dpi=150)
     ax.plot([0, 1], [0, 1], ls="--", lw=1, color=GRAY, zorder=1)
     ax.text(0.86, 0.80, "perfect calibration", color=MUTED, fontsize=8.5, rotation=45, ha="center", va="center")
@@ -66,7 +66,7 @@ def plot_calibration(y, preds: dict, path: str, n_bins: int = 10):
                     arrowprops=dict(arrowstyle="-", color="#c9c8c3", lw=0.8, shrinkA=0, shrinkB=3))
     ax.set_xlabel("Mean predicted click probability (equal-count bins)", color=MUTED, fontsize=9)
     ax.set_ylabel("Observed click rate", color=MUTED, fontsize=9)
-    ax.set_title("Calibration on held-out test split (synthetic data)", loc="left", color=INK, fontsize=11)
+    ax.set_title(f"Calibration on held-out test split ({data_label})", loc="left", color=INK, fontsize=11)
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     ax.grid(True, color="#e6e5e1", lw=0.6); ax.set_axisbelow(True)
     for s in ("top", "right"):
@@ -98,7 +98,7 @@ def run(processed: str, artifacts: str, reports: str, synthetic_rows: int | None
         return {k: {"mean": float(np.mean([m[k] for m in ms])), "std": float(np.std([m[k] for m in ms])),
                     "runs": [m[k] for m in ms]} for k in ("auc", "log_loss", "ece")}
 
-    res = {"n_test": int(len(y)), "lightgbm": evaluate(y, lgbm),
+    res = {"data": "synthetic" if synthetic_rows else "real", "n_test": int(len(y)), "lightgbm": evaluate(y, lgbm),
            "dcnv2": summarize(dcn), "deep_only": summarize(deep) if deep else None,
            "base_rate_log_loss": log_loss(y, np.full_like(y, y.mean()))}
     ll_l, ll_d = res["lightgbm"]["log_loss"], res["dcnv2"]["log_loss"]["mean"]
@@ -114,7 +114,8 @@ def run(processed: str, artifacts: str, reports: str, synthetic_rows: int | None
         res["oracle"] = {"auc": auc(y, p_true), "log_loss": log_loss(y, p_true)}
 
     os.makedirs(reports, exist_ok=True)
-    plot_calibration(y, {"LightGBM": lgbm, "DCN-V2": dcn[0]}, os.path.join(reports, "calibration.png"))
+    plot_calibration(y, {"LightGBM": lgbm, "DCN-V2": dcn[0]}, os.path.join(reports, "calibration.png"),
+                     data_label="synthetic data" if synthetic_rows else "real data")
     with open(os.path.join(reports, "results.json"), "w") as f:
         json.dump(res, f, indent=2)
     with open(os.path.join(reports, "results.md"), "w") as f:
@@ -134,8 +135,13 @@ def render_md(r: dict, n_dcn: int, n_deep: int) -> str:
     if "oracle" in r:
         rows.append(("Oracle (true probabilities)", r["oracle"]["auc"], r["oracle"]["log_loss"], None))
     f = lambda v, n=4: "-" if v is None else f"{v:.{n}f}"
-    lines = ["# Results (SYNTHETIC DATA - validates the code, not a research claim)", "",
-             f"Held-out test split, {r['n_test']:,} rows. Replace with numbers from a real Criteo run before citing.", "",
+    if r.get("data", "synthetic") == "synthetic":      # a results file without the field is treated cautiously
+        head = ["# Results (SYNTHETIC DATA - validates the code, not a research claim)", "",
+                f"Held-out test split, {r['n_test']:,} rows. Replace with numbers from a real Criteo run before citing.", ""]
+    else:
+        head = ["# Results (real data, held-out chronological test split)", "",
+                f"Test split: {r['n_test']:,} rows, scored once after model selection on the validation split.", ""]
+    lines = head + [
              "| Model | AUC | Log loss | ECE |", "|---|---|---|---|"]
     lines += [f"| {n} | {f(a)} | {f(l)} | {f(e)} |" for n, a, l, e in rows]
     lines += ["", f"* DCN-V2 vs LightGBM: log loss {r['logloss_improvement_pct_vs_lgbm']:+.2f}% better, "

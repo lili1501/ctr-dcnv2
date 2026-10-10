@@ -36,9 +36,27 @@ Needs Python 3.13 and a JDK (17 or 21) for PySpark. Tested on CPU only.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests -q                          # 27 tests
+python -m pytest tests -q                          # 44 tests
 SYNTHETIC_ROWS=300000 bash scripts/run_pipeline.sh # synthetic end-to-end run (roughly 10 min on 2 CPU cores; estimated from per-stage timings, the full 300k script run was not timed)
 ```
+
+### One command: `python pipeline.py`
+
+After downloading `data/raw/train.txt` (below), run everything from one Python entry point. No sbatch is needed, but use a
+session with enough memory (16 GB or more; Spark gets about 60% of what the session has, and all its cores):
+
+```bash
+python pipeline.py --subsample-every 40 --seeds "0"   # quick check on ~1.1M rows; note fit_seconds to estimate the full run
+python pipeline.py                                    # default: every 4th row (~11.5M rows), seeds 0 1 2
+nohup python pipeline.py > logs/pipeline.log 2>&1 &   # long runs: survives a closed terminal; follow with tail -f logs/pipeline.log
+```
+
+It wraps `scripts/run_pipeline.sh` and writes, in `reports/`: `results.md` / `results.json` / `calibration.png` (the comparison),
+`run_info.json` (what was run, wall time) and `resume_numbers.md` (the measured facts and a draft bullet built only from the
+results; it refuses to write one for synthetic data and words the claim as improved / matched / worse according to the
+bootstrap CI). Spark shuffle files go to `data/spark_tmp` unless `SPARK_LOCAL_DIRS` is set. It stops with a clear message if
+`train.txt` is missing. Training on CPU is slow for 11M rows with an 84M-parameter model; use a GPU session with
+`pip install "tensorflow[and-cuda]==2.21.0"` if you have one (untested here), and time the small run first.
 
 ### Running on real Criteo
 
@@ -111,7 +129,7 @@ Both models are well calibrated (ECE ~0.01); see `reports/calibration.png`.
 
 ## What was verified, and what was not
 
-**Verified by running it** (27 passing tests plus the runs above):
+**Verified by running it** (44 passing tests plus the runs above):
 - Generator output matches the Criteo schema (40 fields/line, 25.07% CTR, 10% / 5% missing rates).
 - Spark output checked against the raw file: row order and labels preserved; hash indices within range; index 0 exactly where the raw value was empty; integer transform matches an independent recomputation; train-only standardisation (mean ≈ 0, std = 1).
 - Metrics against known answers; the cross layer against a NumPy reference (full-rank, low-rank, identity, degree-3 terms); model save/reload roundtrip.
