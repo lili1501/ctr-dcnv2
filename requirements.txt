@@ -1,0 +1,13 @@
+# Versions below are the ones this project was built and tested with (Python 3.13, CPU only).
+# PySpark also needs a JDK (17 or 21); tested with OpenJDK 21.
+tensorflow==2.21.0
+keras==3.15.1
+pyspark==4.2.0
+lightgbm==4.7.0
+scikit-learn==1.9.1
+pandas==3.0.6
+numpy==2.5.3
+pyarrow==26.0.0
+matplotlib==3.11.2
+requests
+pytest==9.1.1

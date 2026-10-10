@@ -1,0 +1,50 @@
+{
+  "saved_model": "artifacts/serving/ctr/1",
+  "signature": {
+    "inputs": {
+      "dense": {
+        "shape": [
+          null,
+          13
+        ],
+        "dtype": "float32"
+      },
+      "cats": {
+        "shape": [
+          null,
+          26
+        ],
+        "dtype": "int32"
+      }
+    },
+    "outputs": {
+      "output_0": {
+        "shape": [
+          null,
+          1
+        ],
+        "dtype": "float32"
+      }
+    }
+  },
+  "verification": {
+    "rows": 2000,
+    "max_abs_diff": 0.0,
+    "output_key": "output_0",
+    "all_in_0_1": true
+  },
+  "inprocess_latency": [
+    {
+      "batch_size": 1,
+      "p50_ms": 0.6591575000811645,
+      "p95_ms": 0.8416591499894822,
+      "p99_ms": 1.0962491501504699
+    },
+    {
+      "batch_size": 32,
+      "p50_ms": 1.1019384999144677,
+      "p95_ms": 1.3068981001765678,
+      "p99_ms": 1.5636451899740653
+    }
+  ]
+}
