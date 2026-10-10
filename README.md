@@ -68,6 +68,26 @@ SYNTHETIC_ROWS=300000 bash scripts/run_pipeline.sh # synthetic end-to-end run (r
    python -m ctr.benchmark_serving --url http://localhost:8501/v1/models/ctr:predict --batch-size 1 --requests 2000
    ```
 
+### Running on UF HiPerGator (SLURM)
+
+Do not run the pipeline on a login node; UF's docs reserve login nodes for small quick tests. Submit a batch job instead.
+
+```bash
+ssh <gatorlink>@hpg.rc.ufl.edu
+cd /blue/<your_group>/<your_user>                     # work on /blue, not /home (40 GB quota)
+git clone https://github.com/lili1501/ctr-dcnv2.git && cd ctr-dcnv2
+module spider java; module spider python             # find exact module names, then load them
+module load <java 17 or 21> <python>
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+# download the data (section above) into data/raw/, e.g. inside a short job or via Globus/scp from your laptop
+sbatch scripts/hipergator.sbatch                      # edit the module lines and resources in the file first
+squeue -u $USER; tail -f logs/ctr-dcnv2_<jobid>.out   # monitor
+```
+
+`scripts/hipergator.sbatch` defaults to a 12 h, 8-core, 64 GB job on a quarter of the rows with one seed. Its logic was tested
+here with SLURM faked; it has **not** been run on HiPerGator. Whether compute nodes can reach the internet is unverified,
+so download the data from a login/dev session or transfer it with Globus/scp if `curl` fails inside a job.
+
 **Scaling notes for full Criteo (not tested at this scale).** `ctr/data.py` loads a whole split into RAM, which will not
 fit for ~36M training rows: switch training to streamed Parquet batches (e.g. `tf.data` over Parquet shards). Raise
 `--num-buckets` (50k is sized for the small synthetic set; hash collisions grow with cardinality) and set

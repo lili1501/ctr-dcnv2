@@ -35,6 +35,8 @@ def build_spark(driver_memory: str | None = None, cores: str | int | None = None
             .config("spark.driver.memory", driver_memory)
             .config("spark.sql.shuffle.partitions", shuffle_partitions)
             .config("spark.ui.enabled", "false")
+            # shuffle/spill files go here; on a cluster set SPARK_LOCAL_DIR=$SLURM_TMPDIR (node-local flash)
+            .config("spark.local.dir", os.environ.get("SPARK_LOCAL_DIR", "/tmp"))
             .getOrCreate())
 
 

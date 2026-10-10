@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ctr.data import load_split
+from ctr.data import load_labels, load_metadata
 from ctr.metrics import auc, calibration_table, evaluate, log_loss
 from ctr.synthetic import generate
 
@@ -82,12 +82,16 @@ def plot_calibration(y, preds: dict, path: str, n_bins: int = 10):
 
 
 def run(processed: str, artifacts: str, reports: str, synthetic_rows: int | None) -> dict:
-    y = load_split(processed, "test")["y"].astype(np.float64)
     lgbm = np.load(os.path.join(artifacts, "lgbm", "pred_test.npy"))
     dcn_dirs = sorted(glob.glob(os.path.join(artifacts, "dcnv2*")))
     deep_dirs = sorted(glob.glob(os.path.join(artifacts, "deep_only*")))
     dcn = [np.load(os.path.join(d, "pred_test.npy")) for d in dcn_dirs]
     deep = [np.load(os.path.join(d, "pred_test.npy")) for d in deep_dirs]
+    # Every model must have been scored on the same test rows (the first len(lgbm) rows; fewer than
+    # the full split when --eval-max-rows was used). Only the label column is read from disk.
+    assert all(len(p) == len(lgbm) for p in dcn + deep), "models were scored on different numbers of test rows"
+    y = load_labels(processed, "test", len(lgbm)).astype(np.float64)
+    assert len(y) == len(lgbm)
 
     def summarize(preds):
         ms = [evaluate(y, p) for p in preds]
@@ -103,7 +107,9 @@ def run(processed: str, artifacts: str, reports: str, synthetic_rows: int | None
     res["bootstrap_dcnv2_seed0_minus_lgbm"] = paired_bootstrap(y, dcn[0], lgbm)
 
     if synthetic_rows:
-        p_true, y_true = oracle_probs(synthetic_rows, len(y))
+        n_test_full = load_metadata(processed)["splits"]["test"]["rows"]
+        p_true, y_true = oracle_probs(synthetic_rows, n_test_full)
+        p_true, y_true = p_true[:len(y)], y_true[:len(y)]   # same (possibly capped) rows the models were scored on
         assert np.array_equal(y_true, y), "oracle labels do not align with the test split"
         res["oracle"] = {"auc": auc(y, p_true), "log_loss": log_loss(y, p_true)}
 

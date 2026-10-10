@@ -19,6 +19,7 @@ import pandas as pd
 from ctr.config import CAT_COLS, INT_COLS
 from ctr.data import load_split
 from ctr.metrics import evaluate
+from ctr.resources import available_cpus
 
 
 def to_frame(split: dict) -> pd.DataFrame:
@@ -28,10 +29,13 @@ def to_frame(split: dict) -> pd.DataFrame:
     return df
 
 
-def train(processed_dir: str, out_dir: str, max_train_rows: int | None = None, seed: int = 0) -> dict:
+def train(processed_dir: str, out_dir: str, max_train_rows: int | None = None, seed: int = 0,
+          eval_max_rows: int | None = None) -> dict:
+    """max_train_rows / eval_max_rows keep memory bounded (LightGBM needs its data in RAM);
+    use the same values for the DCN-V2 run so both models are compared on identical rows."""
     tr = load_split(processed_dir, "train", max_train_rows)
-    va = load_split(processed_dir, "val")
-    te = load_split(processed_dir, "test")
+    va = load_split(processed_dir, "val", eval_max_rows)
+    te = load_split(processed_dir, "test", eval_max_rows)
 
     # Make category dtypes identical across splits (union of all levels seen).
     frames = {k: to_frame(v) for k, v in (("train", tr), ("val", va), ("test", te))}
@@ -46,7 +50,7 @@ def train(processed_dir: str, out_dir: str, max_train_rows: int | None = None, s
         feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1,
         lambda_l2=10.0,
         cat_smooth=50, cat_l2=20, min_data_per_group=200, max_cat_threshold=64,
-        seed=seed, num_threads=os.cpu_count(), verbose=-1,
+        seed=seed, num_threads=available_cpus(), verbose=-1,
     )
     dtrain = lgb.Dataset(frames["train"], tr["y"], categorical_feature=CAT_COLS, free_raw_data=False)
     dval = lgb.Dataset(frames["val"], va["y"], reference=dtrain)
@@ -82,5 +86,6 @@ if __name__ == "__main__":
     ap.add_argument("--processed", default="data/processed")
     ap.add_argument("--out", default="artifacts/lgbm")
     ap.add_argument("--max-train-rows", type=int, default=None)
+    ap.add_argument("--eval-max-rows", type=int, default=None, help="score only the first N val/test rows")
     a = ap.parse_args()
-    print(json.dumps(train(a.processed, a.out, a.max_train_rows), indent=2))
+    print(json.dumps(train(a.processed, a.out, a.max_train_rows, eval_max_rows=a.eval_max_rows), indent=2))
