@@ -24,7 +24,13 @@ from ctr.config import (CAT_COLS, INT_COLS, LABEL, NUM_BUCKETS, RAW_COLUMNS,
                         TRAIN_FRAC, VAL_FRAC)
 
 
-def build_spark(driver_memory: str = "4g", cores: int = 2, shuffle_partitions: int = 8) -> SparkSession:
+def build_spark(driver_memory: str | None = None, cores: str | int | None = None,
+                shuffle_partitions: int | None = None) -> SparkSession:
+    """Local-mode Spark. Override with env vars for big machines, e.g.
+    SPARK_DRIVER_MEMORY=24g SPARK_CORES='*' SPARK_SHUFFLE_PARTITIONS=64 (defaults: 4g, 2, 8)."""
+    driver_memory = driver_memory or os.environ.get("SPARK_DRIVER_MEMORY", "4g")
+    cores = cores or os.environ.get("SPARK_CORES", "2")
+    shuffle_partitions = shuffle_partitions or int(os.environ.get("SPARK_SHUFFLE_PARTITIONS", "8"))
     return (SparkSession.builder.master(f"local[{cores}]").appName("ctr-prep")
             .config("spark.driver.memory", driver_memory)
             .config("spark.sql.shuffle.partitions", shuffle_partitions)

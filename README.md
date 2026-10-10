@@ -42,8 +42,26 @@ SYNTHETIC_ROWS=300000 bash scripts/run_pipeline.sh # synthetic end-to-end run (r
 
 ### Running on real Criteo
 
-1. Download the Criteo Display Advertising Challenge `train.txt` (tab-separated, ~45M rows) yourself.
-2. `RAW=/path/to/train.txt bash scripts/run_pipeline.sh` (leave `SYNTHETIC_ROWS` unset).
+1. **Download** the Criteo Kaggle Display Advertising Challenge data. Criteo AI Lab's
+   [resources page](https://ailab.criteo.com/ressources/) lists a direct link
+   (`https://go.criteo.net/criteo-research-kaggle-display-advertising-challenge-dataset.tar.gz`); the data is also
+   described on the [Kaggle competition page](https://www.kaggle.com/c/criteo-display-ad-challenge/). Read Criteo's terms
+   of use on that page before using it. The labelled file is `train.txt` (13 integer + 26 hashed categorical features,
+   ~7 days of traffic; 45,840,617 rows per the [Criteo_x4 dataset card](https://www.huggingface.co/datasets/reczoo/Criteo_x4/blob/main/README.md)).
+   `test.txt` has no labels and is not used. Make sure you have tens of GB of free disk (Spark spills to disk).
+   ```bash
+   mkdir -p data/raw && cd data/raw
+   curl -L -o criteo.tar.gz https://go.criteo.net/criteo-research-kaggle-display-advertising-challenge-dataset.tar.gz
+   tar -xzf criteo.tar.gz && cd ../..
+   wc -l data/raw/train.txt                 # sanity check: should be about 45.8M lines
+   ```
+2. **Start with a subsample** (every 4th row keeps chronological order and covers all days, giving ~11.5M rows), then scale up:
+   ```bash
+   SUBSAMPLE_EVERY=4 NUM_BUCKETS=200000 SPARK_DRIVER_MEMORY=16g SPARK_CORES='*' \
+     RAW=data/raw/train.txt bash scripts/run_pipeline.sh      # leave SYNTHETIC_ROWS unset
+   ```
+   For the full file drop `SUBSAMPLE_EVERY` (needs far more RAM, see scaling notes). The `[X]M impressions` figure on the
+   resume is the `total_rows` you actually processed, so state the subsample honestly.
 3. Serve and benchmark:
    ```bash
    bash scripts/serve_tfserving.sh                      # needs Docker + Docker Hub access
@@ -52,8 +70,8 @@ SYNTHETIC_ROWS=300000 bash scripts/run_pipeline.sh # synthetic end-to-end run (r
 
 **Scaling notes for full Criteo (not tested at this scale).** `ctr/data.py` loads a whole split into RAM, which will not
 fit for ~36M training rows: switch training to streamed Parquet batches (e.g. `tf.data` over Parquet shards). Raise
-`--num-buckets` (50k is sized for the small synthetic set; hash collisions grow with cardinality) and expect to adjust
-the Spark driver memory in `build_spark`. A GPU is strongly recommended for DCN-V2 training.
+`--num-buckets` (50k is sized for the small synthetic set; hash collisions grow with cardinality) and set
+`SPARK_DRIVER_MEMORY` / `SPARK_CORES` for Spark. Only the 300k-row synthetic run was ever executed; the real-data settings above are untested defaults. A GPU is strongly recommended for DCN-V2 training.
 
 ## Results on SYNTHETIC data (code validation only)
 
