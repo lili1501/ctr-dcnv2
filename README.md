@@ -4,10 +4,9 @@ Deep ranking for online advertising: a **DCN-V2 (Deep & Cross Network)** in Tens
 **LightGBM** baseline on Criteo-format click logs. Raw logs are processed with **PySpark**; the model is exported as a
 SavedModel for **TF Serving**.
 
-> **Status of the numbers.** The Criteo dataset could not be downloaded in the environment this was built in, so every
-> result below is from a **synthetic dataset in Criteo's exact format** (`ctr/synthetic.py`) with planted feature
-> interactions. Those numbers validate that the code works; they are **not** results to cite. Run the pipeline on real
-> Criteo (see below) to get the numbers for a resume or write-up.
+> **Status of the numbers.** Real-data results (Criteo Attribution dataset, first 3M rows) are in the Results section
+> below and in `reports/`. The synthetic-data section further down validates the code against a known answer and is not a
+> result to cite. The TF Serving server itself was never run, so there is no serving latency number.
 
 ## Pipeline
 
@@ -127,6 +126,40 @@ fit for ~36M training rows: switch training to streamed Parquet batches (e.g. `t
 `--num-buckets` (50k is sized for the small synthetic set; hash collisions grow with cardinality) and set
 `SPARK_DRIVER_MEMORY` / `SPARK_CORES` for Spark. Only the 300k-row synthetic run was ever executed; the real-data settings above are untested defaults. A GPU is strongly recommended for DCN-V2 training.
 
+## Results on real data (Criteo Attribution dataset, click prediction)
+
+Data: the first **3,000,000 rows** of the Criteo Attribution Modeling dataset (16.5M rows in full; CC BY-NC-SA 4.0, Diemert
+et al., AdKDD 2017, arXiv:1707.06409), taken as a prefix of the time-sorted file via a partial download. Overall click rate
+34.99%. Task: predict `click` from `time_since_last_click` (1 numeric feature) and `campaign`, `uid`, `cat1`-`cat9` (11
+categorical features, hashed into 200,000 buckets). Chronological split by row order: train 2,400,596 / val 298,926 / test
+300,478 rows. The test split is scored once after model selection on validation. It has a lower click rate (33.7%) than
+train (35.1%), a mild shift.
+
+| Model | AUC | Log loss | ECE |
+|---|---|---|---|
+| Constant base rate | - | 0.6392 | - |
+| LightGBM | 0.6884 | 0.5865 | 0.0076 |
+| Deep-only (no cross layers), 3 seeds | 0.6849 | 0.5895 | 0.0231 |
+| DCN-V2, 3 seeds | 0.6858 | 0.5886 | 0.0195 |
+
+- **LightGBM is slightly better than DCN-V2 here.** DCN-V2 is 0.0026 AUC lower and has 0.36% *higher* log loss (the
+  generated `results.md` prints this as "-0.36% better", i.e. worse). Paired bootstrap on test, DCN-V2 (seed 0) minus
+  LightGBM, 95% CI: AUC diff -0.0031 to -0.0014, log-loss diff +0.0009 to +0.0018, so the gap is small but not noise.
+- DCN-V2 beats the deep-only ablation by 0.0009 AUC (seed std about 0.0002 over 3 seeds; no paired test was run for this
+  pair). Both are better than the base rate, but the whole task has a low ceiling: this dataset has only 12 anonymised
+  features, so these AUCs are not comparable to the 39-feature Criteo Kaggle benchmark.
+- LightGBM is also better calibrated (ECE 0.008 vs 0.020 for DCN-V2).
+- **Leakage check.** Columns such as `conversion`, `click_pos` and `click_nb` are only present when a click happened
+  (click rate 1.0 when present vs 0.317 when absent, in `data/raw/*.audit.json`), so they, `timestamp`, `attribution`,
+  `cost` and `cpo` are excluded from the features.
+- `uid` is a user id and the split is chronological, so part of the signal may be user-level memorisation of returning
+  users; this was not separated out.
+- One configuration, untuned hyperparameters, 3 seeds. Pipeline wall time was 454 s for the DCN-V2, export and compare
+  stages (`reports/run_info.json`).
+- SavedModel export matches the Keras predictions on 2,000 test rows (max abs diff 2.8e-06). In-process latency
+  (`reports/serving_check.json`: p95 1.4 ms at batch 1) excludes the server, network and JSON and is **not** a TF Serving
+  latency.
+
 ## Results on SYNTHETIC data (code validation only)
 
 Held-out test split, 30,037 rows; 300k rows total; the best epoch is epoch 1 for every neural run.
@@ -155,19 +188,19 @@ Both models are well calibrated (ECE ~0.01); see `reports/calibration.png`.
 - `scripts/run_pipeline.sh` runs cleanly end to end on a small synthetic configuration.
 
 **Not verified:**
-- **Real Criteo data.** Never run on it. All `[X]` values for impressions, AUC and log loss are still to be produced.
+- **Full Criteo or the full 16.5M-row Attribution dataset.** The real run used a 3M-row prefix of the Attribution data; the original Criteo Kaggle data was never obtained.
 - **The real TF Serving binary and its latency.** Docker registries were unreachable, so the server was never started. `scripts/serve_tfserving.sh` and the REST path against a real server are untested. The in-process SavedModel latency in `reports/serving_check.json` (p95 ≈ 0.8 ms at batch 1) excludes network, JSON and the server and must not be quoted as TF Serving p95.
-- gRPC serving, GPU training, and behaviour at 45M-row scale.
+- gRPC serving, and behaviour at 16M+ row scale.
 - Hyperparameters are untuned defaults (no search was run).
 
 ## Mapping to the resume bullets
 
-| Bullet placeholder | Where the number comes from |
+| Bullet placeholder | Real value from the run |
 |---|---|
-| `[X]M ad impressions` | `total_rows` printed by `ctr.spark_prep` (and `data/processed/metadata.json`) on real Criteo |
-| `AUC to [X]` | `reports/results.md`, DCN-V2 row (real run) |
-| `log loss by [X]%` | `reports/results.json` → `logloss_improvement_pct_vs_lgbm` (real run) |
-| `[X] ms p95` | `ctr.benchmark_serving` output against a running TF Serving instance |
+| `[X]M ad impressions` | 3.0M (first 3M rows of the 16.5M-row Attribution dataset; say "3M-row subset") |
+| `AUC to [X]` | DCN-V2 0.6858 vs LightGBM 0.6884 (`reports/results.md`): DCN-V2 did **not** beat LightGBM |
+| `log loss by [X]%` | DCN-V2 is 0.36% worse than LightGBM; do not claim an improvement |
+| `[X] ms p95` | no TF Serving measurement exists; in-process SavedModel p95 1.4 ms is not a serving latency |
 
 Wording note: Criteo's features are anonymised, so "ad and user features" is not literally accurate. Prefer
 "anonymised high-cardinality categorical features" unless you can say which columns are which.
