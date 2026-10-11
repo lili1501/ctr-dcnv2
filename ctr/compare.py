@@ -23,13 +23,13 @@ import numpy as np
 
 from ctr.data import load_labels, load_metadata
 from ctr.metrics import auc, calibration_table, evaluate, log_loss
-from ctr.synthetic import generate
 
 BLUE, ORANGE, GRAY, INK, MUTED = "#2a78d6", "#eb6834", "#8a8984", "#0b0b0b", "#52514e"  # validated pair (light)
 
 
 def oracle_probs(total_rows: int, n_test: int, seed: int = 0, chunk: int = 100_000):
     """Re-create the generator's true p for the LAST n_test rows (the test split), plus labels."""
+    from ctr.synthetic import generate          # synthetic data only exists for the criteo_kaggle schema
     ps, ys, part, done = [], [], 0, 0
     while done < total_rows:
         m = min(chunk, total_rows - done)

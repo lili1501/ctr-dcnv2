@@ -23,7 +23,8 @@ from ctr.config import CAT_COLS, INT_COLS
 _CARDS = [1400, 550, 200_000, 100_000, 300, 20, 12_000, 600, 3, 40_000, 5_000,
           150_000, 3_000, 25, 9_000, 120_000, 10, 4_000, 2_000, 4, 150_000, 15,
           80, 30_000, 70, 20_000]
-assert len(_CARDS) == len(CAT_COLS)
+if len(_CARDS) != len(CAT_COLS):
+    raise ImportError('ctr.synthetic only supports the criteo_kaggle schema (26 categorical columns); unset CTR_SCHEMA')
 
 
 def generate(n_rows: int, seed: int = 0, target_ctr: float = 0.25) -> dict:

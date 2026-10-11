@@ -70,7 +70,12 @@ def spark_defaults(env, mem_gb, cpus: int, root: str) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--raw", help="Criteo train.txt (default data/raw/train.txt)")
+    ap.add_argument("--dataset", choices=["kaggle", "attribution"], default="kaggle",
+                    help="kaggle: Criteo Display Advertising train.txt; attribution: Criteo Attribution Modeling "
+                         "(criteo_attribution_dataset.tsv.gz from Hugging Face)")
+    ap.add_argument("--max-rows", type=int, help="attribution only: use just the first N rows (the earliest in time); "
+                    "a partial download is fine")
+    ap.add_argument("--raw", help="input file (default data/raw/train.txt, or data/raw/criteo_attribution_dataset.tsv.gz)")
     ap.add_argument("--subsample-every", type=int, help="keep every Nth row (default 4; 1 = all rows)")
     ap.add_argument("--seeds", help='DCN-V2 seeds, e.g. "0 1 2" (default "0 1 2")')
     ap.add_argument("--num-buckets", type=int, help="hash buckets per categorical feature (default 200000)")
@@ -80,7 +85,10 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     env = os.environ.copy()
-    defaults = {"RAW": "data/raw/train.txt", "SUBSAMPLE_EVERY": "4", "SEEDS": "0 1 2", "NUM_BUCKETS": "200000",
+    attribution = a.dataset == "attribution"
+    env["CTR_SCHEMA"] = "criteo_attribution" if attribution else "criteo_kaggle"
+    defaults = {"RAW": "data/raw/criteo_attribution_dataset.tsv.gz" if attribution else "data/raw/train.txt",
+                "SUBSAMPLE_EVERY": "1" if attribution else "4", "SEEDS": "0 1 2", "NUM_BUCKETS": "200000",
                 "PROCESSED": "data/processed", "REPORTS": "reports"}
     opts = {"RAW": a.raw, "SUBSAMPLE_EVERY": a.subsample_every, "SEEDS": a.seeds, "NUM_BUCKETS": a.num_buckets,
             "PROCESSED": a.processed, "ART": a.artifacts, "REPORTS": a.reports, "STAGES": a.stages,
@@ -98,9 +106,14 @@ def main(argv=None) -> int:
     if a.subsample_every == 1:
         env["SUBSAMPLE_EVERY"] = ""
 
+    if attribution and a.synthetic_rows:
+        sys.stderr.write("ERROR: --synthetic-rows only exists for the kaggle schema\n")
+        return 2
+    if attribution and a.subsample_every is None and "SUBSAMPLE_EVERY" not in os.environ:
+        env["SUBSAMPLE_EVERY"] = ""            # the attribution set is small enough to use whole (16.5M rows)
     raw = env.get("RAW", defaults["RAW"])
     stages = env.get("STAGES", "gen prep lgbm dcn export compare").split()
-    if not a.synthetic_rows and "prep" in stages and not os.path.exists(os.path.join(ROOT, raw) if not os.path.isabs(raw) else raw):
+    if not a.synthetic_rows and "prep" in stages and not attribution and not os.path.exists(os.path.join(ROOT, raw) if not os.path.isabs(raw) else raw):
         sys.stderr.write(f"ERROR: {raw} not found. Download Criteo first (see README, 'Running on real Criteo'), "
                          f"or pass --raw /path/to/train.txt\n")
         return 2
@@ -108,6 +121,31 @@ def main(argv=None) -> int:
     reports = env.get("REPORTS", defaults["REPORTS"])
     processed = env.get("PROCESSED", defaults["PROCESSED"])
     artifacts = env.get("ART", "artifacts")
+
+    sys.path.insert(0, ROOT)
+    audit = None
+    if attribution and "prep" in stages:
+        # the dataset ships as a compressed TSV with a header and many extra columns; convert once to the pipeline's raw format
+        converted = os.path.join(ROOT, "data", "raw", "criteo_attribution.txt")
+        src = raw if os.path.isabs(raw) else os.path.join(ROOT, raw)
+        if not os.path.exists(src):
+            sys.stderr.write(f"ERROR: {raw} not found. Download criteo_attribution_dataset.tsv.gz from "
+                             f"https://huggingface.co/datasets/criteo/criteo-attribution-dataset (Files and versions), "
+                             f"or pass --raw /path/to/it\n")
+            return 2
+        if os.path.abspath(src) != os.path.abspath(converted):
+            from ctr.prepare_attribution import convert
+            print(f"Converting {raw} -> data/raw/criteo_attribution.txt (one pass over the file) ...", flush=True)
+            audit = convert(src, converted, max_rows=a.max_rows)
+            with open(converted + ".audit.json", "w") as f:
+                json.dump(audit, f, indent=2)
+            print(f"  {audit['rows']:,} rows, click rate {audit['click_rate']:.2%}, sorted by timestamp: {audit['sorted_by_timestamp']}")
+            if not audit["sorted_by_timestamp"]:
+                sys.stderr.write("ERROR: the file is not sorted by timestamp, so a positional split would not be a time split.\n")
+                return 2
+        env["RAW"] = raw = converted
+    elif attribution and os.path.exists(os.path.join(ROOT, "data", "raw", "criteo_attribution.txt.audit.json")):
+        audit = json.load(open(os.path.join(ROOT, "data", "raw", "criteo_attribution.txt.audit.json")))
 
     sys.path.insert(0, ROOT)
     from ctr.resources import available_cpus
@@ -129,7 +167,8 @@ def main(argv=None) -> int:
         info = {"subsample_every": int(env["SUBSAMPLE_EVERY"]) if env.get("SUBSAMPLE_EVERY") else 1,
                 "seeds": env.get("SEEDS", defaults["SEEDS"]), "num_buckets": env.get("NUM_BUCKETS") or None,
                 "synthetic_rows": a.synthetic_rows, "raw": raw, "elapsed_seconds": round(time.time() - t0, 1),
-                "stages": stages}
+                "stages": stages,
+                "dataset": a.dataset, "max_rows": a.max_rows, "attribution_audit": audit}
         with open(os.path.join(ROOT, reports, "run_info.json"), "w") as f:
             json.dump(info, f, indent=2)
         sys.path.insert(0, ROOT)

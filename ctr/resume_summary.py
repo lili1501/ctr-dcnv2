@@ -13,6 +13,7 @@ import json
 import os
 
 FULL_CRITEO_ROWS = "45.8M"      # rows in the Criteo Kaggle train.txt (Criteo_x4 dataset card: 45,840,617)
+FULL_ATTRIBUTION_ROWS = "16.5M"  # rows in criteo_attribution_dataset.tsv.gz (16,468,027 per the dataset card)
 
 
 def _load(path):
@@ -47,8 +48,11 @@ def render(res: dict, meta: dict, run_info: dict | None = None, serving: dict | 
     n_seeds = len(D["auc"]["runs"])
     rows = meta["total_rows"]
     sub = (run_info or {}).get("subsample_every")
-    sub_clause = (f" (every {sub}th row of the ~{FULL_CRITEO_ROWS}-row Criteo training file, in time order)"
-                  if sub and int(sub) > 1 else f" (the full ~{FULL_CRITEO_ROWS}-row Criteo training file)")
+    attribution = (run_info or {}).get("dataset") == "attribution"
+    full_rows, what = ((FULL_ATTRIBUTION_ROWS, "Criteo Attribution dataset") if attribution
+                       else (FULL_CRITEO_ROWS, "Criteo training file"))
+    sub_clause = (f" (every {sub}th row of the ~{full_rows}-row {what}, in time order)"
+                  if sub and int(sub) > 1 else f" (the full ~{full_rows}-row {what})")
     split = meta["splits"]
 
     out = ["# Resume numbers (measured on this run)", "",
@@ -83,7 +87,7 @@ def render(res: dict, meta: dict, run_info: dict | None = None, serving: dict | 
         x = serving["verification"]
         verified = (f"; SavedModel export checked against Keras on {x['rows']:,} rows (max abs difference {x['max_abs_diff']:g})")
     base = (f"Built a PySpark preprocessing pipeline and a DCN-V2 click-through-rate model (TensorFlow/Keras) on "
-            f"{millions(rows)} Criteo ad impressions{sub_clause}, with a chronological train/validation/test split")
+            f"{millions(rows)} Criteo ad impressions{sub_clause}, predicting clicks, with a chronological train/validation/test split")
     out += ["", "## Draft resume bullet (edit freely, but keep every number tied to the table above)", ""]
     if v == "improved":
         out.append(f"> {base}: test AUC {auc_d:.4f} vs {auc_l:.4f} for a LightGBM baseline "
@@ -98,6 +102,15 @@ def render(res: dict, meta: dict, run_info: dict | None = None, serving: dict | 
                    f"calibration and a cross-layer ablation{verified}.")
         out += ["", "**DCN-V2 did not beat LightGBM on this run, so do not claim an improvement.** Things to try before "
                 "re-running: `--emb-l2` on the embeddings, a smaller `--emb-dim`, more hash buckets, or fewer epochs."]
+    if attribution:
+        out += ["", "## Dataset caveats (Criteo Attribution Modeling, click prediction)",
+                "- Licence CC BY-NC-SA 4.0: fine for a portfolio/research project, not for commercial use. Cite Diemert et al., "
+                "\"Attribution Modeling Increases Efficiency of Bidding in Display Advertising\", AdKDD 2017 (arXiv:1707.06409) "
+                "in the README.",
+                "- Features used: time_since_last_click, campaign, uid and cat1-cat9. Conversion, attribution, click_pos, click_nb, "
+                "cost and cpo are excluded because they are outcomes or post-impression values (see `data/raw/criteo_attribution.txt.audit.json`).",
+                "- `uid` lets the model memorise users seen in the training period; the split is chronological, but say so if asked.",
+                "- This is not the 45.8M-row Criteo Kaggle benchmark, so do not compare the numbers with published Kaggle results."]
     out += ["", "## What not to claim",
             "- Serving latency: the in-process number in `serving_check.json` is not TF Serving latency. Only quote p95 after "
             "running `python -m ctr.benchmark_serving` against a live TF Serving container.",

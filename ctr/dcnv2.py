@@ -17,7 +17,7 @@ form W = U V^T, which cuts cross-layer parameters from d^2 to 2*d*rank.
 import keras
 from keras import layers, ops
 
-from ctr.config import NUM_BUCKETS
+from ctr.config import N_CAT, N_INT, NUM_BUCKETS
 
 
 @keras.saving.register_keras_serializable(package="ctr")
@@ -51,7 +51,7 @@ class CrossLayer(layers.Layer):
 
 @keras.saving.register_keras_serializable(package="ctr")
 class OffsetCats(layers.Layer):
-    """Add a per-feature offset so all 26 features index one shared embedding table."""
+    """Add a per-feature offset so all categorical features index one shared embedding table."""
 
     def __init__(self, n_cat: int, num_buckets: int, **kwargs):
         super().__init__(**kwargs)
@@ -65,7 +65,7 @@ class OffsetCats(layers.Layer):
         return {**super().get_config(), "n_cat": self.n_cat, "num_buckets": self.num_buckets}
 
 
-def build_dcnv2(num_buckets: int = NUM_BUCKETS, n_dense: int = 13, n_cat: int = 26,
+def build_dcnv2(num_buckets: int = NUM_BUCKETS, n_dense: int = N_INT, n_cat: int = N_CAT,
                 emb_dim: int = 16, n_cross: int = 3, cross_rank: int | None = None,
                 mlp_units=(256, 128), dropout: float = 0.1, structure: str = "parallel",
                 emb_l2: float = 0.0) -> keras.Model:

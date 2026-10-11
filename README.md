@@ -36,7 +36,7 @@ Needs Python 3.13 and a JDK (17 or 21) for PySpark. Tested on CPU only.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests -q                          # 44 tests
+python -m pytest tests -q                          # 50 tests
 SYNTHETIC_ROWS=300000 bash scripts/run_pipeline.sh # synthetic end-to-end run (roughly 10 min on 2 CPU cores; estimated from per-stage timings, the full 300k script run was not timed)
 ```
 
@@ -86,6 +86,22 @@ bootstrap CI). Spark shuffle files go to `data/spark_tmp` unless `SPARK_LOCAL_DI
    python -m ctr.benchmark_serving --url http://localhost:8501/v1/models/ctr:predict --batch-size 1 --requests 2000
    ```
 
+### Smaller option: the Criteo Attribution dataset (click prediction)
+If the Kaggle file is unavailable, use [criteo/criteo-attribution-dataset](https://huggingface.co/datasets/criteo/criteo-attribution-dataset)
+(16.5M impressions, time-sorted, `criteo_attribution_dataset.tsv.gz`, 623 MB). A prefix of the file is enough: a byte-range
+download is cut mid-stream, and the converter reads up to the cut and drops the incomplete last row.
+```bash
+curl -L -r 0-199999999 -o data/raw/attr_part.tsv.gz \
+  https://huggingface.co/datasets/criteo/criteo-attribution-dataset/resolve/main/criteo_attribution_dataset.tsv.gz   # first ~200 MB
+python pipeline.py --dataset attribution --raw data/raw/attr_part.tsv.gz --max-rows 3000000 --seeds "0 1 2"
+```
+Label = `click`; features = `time_since_last_click`, `campaign`, `uid`, `cat1`-`cat9`. Excluded as outcomes or post-impression
+values: conversion fields, `attribution`, `click_pos`, `click_nb`, `cost`, `cpo` (the audit in
+`data/raw/criteo_attribution.txt.audit.json` shows e.g. that `click_pos` is defined exactly when the impression was clicked).
+A prefix covers only the earliest part of the timeline, so the chronological split is within that window; say so when citing numbers.
+License CC BY-NC-SA 4.0 (non-commercial); cite Diemert et al., AdKDD 2017 (arXiv:1707.06409). Tested here on a generated file in
+the real format (tests/test_attribution.py); never run on the real download.
+
 ### Running on UF HiPerGator (SLURM)
 
 Do not run the pipeline on a login node; UF's docs reserve login nodes for small quick tests. Submit a batch job instead.
@@ -129,7 +145,7 @@ Both models are well calibrated (ECE ~0.01); see `reports/calibration.png`.
 
 ## What was verified, and what was not
 
-**Verified by running it** (44 passing tests plus the runs above):
+**Verified by running it** (50 passing tests plus the runs above):
 - Generator output matches the Criteo schema (40 fields/line, 25.07% CTR, 10% / 5% missing rates).
 - Spark output checked against the raw file: row order and labels preserved; hash indices within range; index 0 exactly where the raw value was empty; integer transform matches an independent recomputation; train-only standardisation (mean ≈ 0, std = 1).
 - Metrics against known answers; the cross layer against a NumPy reference (full-rank, low-rank, identity, degree-3 terms); model save/reload roundtrip.
