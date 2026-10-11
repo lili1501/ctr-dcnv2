@@ -55,6 +55,23 @@ def available_memory_gb(env=None, meminfo="/proc/meminfo"):
     return min(cands) if cands else None
 
 
+def cuda_env(env, root: str, site_dirs=None) -> dict:
+    """Settings that let pip-installed TensorFlow (tensorflow[and-cuda]) find its CUDA libraries: the nvidia/*/lib
+    directories of the active environment go first on LD_LIBRARY_PATH (on HiPerGator TensorFlow otherwise reports no GPU),
+    and the CUDA kernel cache stays inside the project folder instead of ~/.nv. Returns {} when no such libraries exist."""
+    import glob
+    import site
+    dirs = []
+    for sp in (site_dirs if site_dirs is not None else site.getsitepackages()):
+        dirs += sorted(glob.glob(os.path.join(sp, "nvidia", "*", "lib")))
+    if not dirs:
+        return {}
+    out = {"LD_LIBRARY_PATH": ":".join(dirs + [p for p in env.get("LD_LIBRARY_PATH", "").split(":") if p and p not in dirs])}
+    if "CUDA_CACHE_PATH" not in env:
+        out["CUDA_CACHE_PATH"] = os.path.join(root, "data", "cuda_cache")
+    return out
+
+
 def spark_defaults(env, mem_gb, cpus: int, root: str) -> dict:
     """Spark settings to add when the user has not set them: ~60% of available memory for the driver (the later
     TensorFlow/LightGBM stages run after Spark exits), all allocated cores, shuffle files inside the project folder."""
@@ -154,6 +171,12 @@ def main(argv=None) -> int:
         env[k] = v
     if "SPARK_LOCAL_DIRS" in extra:
         os.makedirs(extra["SPARK_LOCAL_DIRS"], exist_ok=True)
+    cuda = cuda_env(env, ROOT)
+    for k, v in cuda.items():
+        env[k] = v
+    if "CUDA_CACHE_PATH" in cuda:
+        os.makedirs(cuda["CUDA_CACHE_PATH"], exist_ok=True)
+    print("CUDA libraries from the Python environment: " + ("added to LD_LIBRARY_PATH" if cuda else "none found (CPU run)"), flush=True)
     print("Spark settings: " + ", ".join(f"{k}={env.get(k)}" for k in ("SPARK_DRIVER_MEMORY", "SPARK_CORES", "SPARK_LOCAL_DIRS")), flush=True)
 
     t0 = time.time()

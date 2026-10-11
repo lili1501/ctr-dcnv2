@@ -111,3 +111,16 @@ def test_attribution_with_missing_file_and_synthetic_flag(tmp_path):
     r = subprocess.run([sys.executable, "pipeline.py", "--dataset", "attribution", "--synthetic-rows", "100"],
                        cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 2
+
+
+def test_cuda_env_puts_pip_cuda_libs_first_and_keeps_cache_local(tmp_path):
+    import pipeline
+    sp = tmp_path / "site"
+    for n in ("cudnn", "cublas"):
+        (sp / "nvidia" / n / "lib").mkdir(parents=True)
+    out = pipeline.cuda_env({"LD_LIBRARY_PATH": "/apps/java/17/lib::/opt/slurm/lib64"}, str(tmp_path), [str(sp)])
+    parts = out["LD_LIBRARY_PATH"].split(":")
+    assert parts[0].endswith("cublas/lib") and parts[1].endswith("cudnn/lib") and parts[-2:] == ["/apps/java/17/lib", "/opt/slurm/lib64"]
+    assert "" not in parts and out["CUDA_CACHE_PATH"] == str(tmp_path / "data" / "cuda_cache")
+    assert "CUDA_CACHE_PATH" not in pipeline.cuda_env({"CUDA_CACHE_PATH": "/x"}, str(tmp_path), [str(sp)])   # user setting wins
+    assert pipeline.cuda_env({}, str(tmp_path), [str(tmp_path / "empty")]) == {}                              # no CUDA libs -> untouched
