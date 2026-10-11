@@ -1,0 +1,89 @@
+{
+  "subsample_every": 1,
+  "seeds": "0 1 2",
+  "num_buckets": "200000",
+  "synthetic_rows": null,
+  "raw": "data/raw/criteo_attribution_dataset.tsv.gz",
+  "elapsed_seconds": 454.4,
+  "stages": [
+    "dcn",
+    "export",
+    "compare"
+  ],
+  "dataset": "attribution",
+  "max_rows": null,
+  "attribution_audit": {
+    "source": "attr_part.tsv.gz",
+    "rows": 3000000,
+    "click_rate": 0.349855,
+    "timestamp_min": 0.0,
+    "timestamp_max": 477572.0,
+    "truncated_input": false,
+    "max_rows": 3000000,
+    "sorted_by_timestamp": true,
+    "unsorted_steps": 0,
+    "features_used": {
+      "label": "click",
+      "I1": "time_since_last_click",
+      "C1": "campaign",
+      "C2": "uid",
+      "C3": "cat1",
+      "C4": "cat2",
+      "C5": "cat3",
+      "C6": "cat4",
+      "C7": "cat5",
+      "C8": "cat6",
+      "C9": "cat7",
+      "C10": "cat8",
+      "C11": "cat9"
+    },
+    "excluded_columns": [
+      "timestamp",
+      "conversion",
+      "conversion_id",
+      "attribution",
+      "click_pos",
+      "click_nb",
+      "cost",
+      "cpo"
+    ],
+    "leakage_check": {
+      "conversion": {
+        "rows_present": 143749,
+        "click_rate_when_present": 1.0,
+        "click_rate_when_absent": 0.3171345935633808
+      },
+      "conversion_id": {
+        "rows_present": 143749,
+        "click_rate_when_present": 1.0,
+        "click_rate_when_absent": 0.3171345935633808
+      },
+      "attribution": {
+        "rows_present": 79007,
+        "click_rate_when_present": 1.0,
+        "click_rate_when_absent": 0.33226988219417164
+      },
+      "click_pos": {
+        "rows_present": 143749,
+        "click_rate_when_present": 1.0,
+        "click_rate_when_absent": 0.3171345935633808
+      },
+      "click_nb": {
+        "rows_present": 143749,
+        "click_rate_when_present": 1.0,
+        "click_rate_when_absent": 0.3171345935633808
+      },
+      "cost": {
+        "rows_present": 3000000,
+        "click_rate_when_present": 0.349855,
+        "click_rate_when_absent": null
+      },
+      "cpo": {
+        "rows_present": 3000000,
+        "click_rate_when_present": 0.349855,
+        "click_rate_when_absent": null
+      }
+    },
+    "license": "CC BY-NC-SA 4.0 (non-commercial); cite Diemert et al., AdKDD 2017, arXiv:1707.06409"
+  }
+}
